@@ -1,0 +1,6 @@
+zone_code,slot_number,vehicle_type,notes
+B1-A,B1-A21,car,Basement 1 Sector A Standard Bay
+B1-A,B1-A22,car,Basement 1 Sector A Standard Bay
+B1-EV,EV-1011,ev,150kW CCS2 Fast Charger
+GF-MOTOR,M-31,motorcycle,Ground Floor Two-Wheeler Bay
+L1-VIP,VIP-11,car,Level 1 Executive Valet

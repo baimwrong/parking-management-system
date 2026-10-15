@@ -1,0 +1,4 @@
+pass_number,rfid_uid,member_name,phone,email,plate_number,vehicle_type_code,plan_type,price_paid,valid_from,valid_until,notes
+MEM-2026-101,E280116060000301,Jonathan Davis,+1-555-1234,jdavis@example.com,B 4567 ABC,car,monthly,120.00,2026-10-01,2026-10-31,Tenant Suite 302
+MEM-2026-102,E280116060000302,Samantha Wright,+1-555-5678,swright@example.com,B 7890 DEF,ev,annual,1300.00,2026-10-01,2027-09-30,Executive VIP
+MEM-2026-103,E280116060000303,Carlos Mendez,+1-555-9012,cmendez@example.com,B 2345 GHI,motorcycle,quarterly,120.00,2026-10-01,2026-12-31,Courier Partner

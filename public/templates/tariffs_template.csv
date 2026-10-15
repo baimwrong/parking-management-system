@@ -1,0 +1,4 @@
+location_code,vehicle_type_code,tariff_name,tariff_type,initial_duration_minutes,initial_rate,subsequent_rate_per_hour,max_daily_cap,overnight_surcharge,lost_ticket_fee,grace_period_minutes
+MGC-01,car,Weekend Special Sedan Rate,progressive,60,6.00,3.50,45.00,20.00,50.00,15
+MGC-01,ev,Green Commuter EV Promo,progressive,60,3.50,2.00,28.00,15.00,40.00,20
+MGC-01,motorcycle,Two-Wheeler Flat Economy,flat,60,3.00,0.00,15.00,10.00,25.00,15
