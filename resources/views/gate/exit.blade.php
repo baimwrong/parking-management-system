@@ -75,7 +75,7 @@
                         </span>
                         @else
                         <span class="badge bg-secondary px-3 py-2">
-                            {{ $calculation['billable_hours'] }} Billable Hours
+                            {{ $calculation['billable_hours'] ?? 0 }} Billable Hours
                         </span>
                         @endif
                     </div>

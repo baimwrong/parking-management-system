@@ -260,7 +260,7 @@
     function openRenewModal(id, passNum, name) {
         document.getElementById('renewModalTitle').textContent = `Renew Pass ${passNum}`;
         document.getElementById('renewMemberText').textContent = `Extending subscription for ${name}.`;
-        document.getElementById('renewForm').action = `/members/${id}/renew`;
+        document.getElementById('renewForm').action = `{{ url('members') }}/${id}/renew`;
 
         const modal = new bootstrap.Modal(document.getElementById('renewPassModal'));
         modal.show();

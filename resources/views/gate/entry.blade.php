@@ -81,7 +81,7 @@
                 <div class="row g-3 mb-4">
                     <div class="col-md-6">
                         <label class="form-label small fw-semibold text-secondary">Preferred Zone</label>
-                        <select name="parking_zone_id" id="zone_select" class="form-select">
+                        <select name="parking_zone_id" id="zone_select" class="form-select" onchange="filterSlotsByZone(this.value)">
                             <option value="">-- Free Flow / Auto Assign --</option>
                             @foreach($zones as $z)
                             <option value="{{ $z->id }}">{{ $z->name }} ({{ $z->available_slots }} free)</option>
@@ -90,7 +90,14 @@
                     </div>
                     <div class="col-md-6">
                         <label class="form-label small fw-semibold text-secondary">Designated Bay / Slot (Optional)</label>
-                        <input type="text" name="parking_slot_id" class="form-control" placeholder="Leave empty for auto-assign">
+                        <select name="parking_slot_id" id="slot_select" class="form-select">
+                            <option value="">-- Auto-allocate first available --</option>
+                            @foreach($zones as $z)
+                                @foreach($z->slots as $s)
+                                <option value="{{ $s->id }}" data-zone-id="{{ $z->id }}">{{ $s->slot_number }} ({{ $z->code }})</option>
+                                @endforeach
+                            @endforeach
+                        </select>
                     </div>
                 </div>
 
@@ -238,12 +245,48 @@
         document.getElementById('camera-overlay-plate').textContent = plate;
     }
 
+    function filterSlotsByZone(zoneId) {
+        const slotSelect = document.getElementById('slot_select');
+        if (!slotSelect) return;
+        const options = slotSelect.querySelectorAll('option');
+
+        options.forEach(opt => {
+            if (!opt.value) {
+                opt.hidden = false;
+                return;
+            }
+            if (!zoneId || opt.getAttribute('data-zone-id') === zoneId) {
+                opt.hidden = false;
+            } else {
+                opt.hidden = true;
+            }
+        });
+
+        const selectedOpt = slotSelect.selectedOptions[0];
+        if (selectedOpt && selectedOpt.hidden) {
+            slotSelect.value = "";
+        }
+    }
+
     // Show modal if ticket was issued
     document.addEventListener("DOMContentLoaded", function () {
         const modalEl = document.getElementById('ticketModal');
         if (modalEl) {
             const ticketModal = new bootstrap.Modal(modalEl);
             ticketModal.show();
+        }
+
+        const slotSelect = document.getElementById('slot_select');
+        if (slotSelect) {
+            slotSelect.addEventListener('change', function () {
+                const opt = this.selectedOptions[0];
+                if (opt && opt.getAttribute('data-zone-id')) {
+                    const zoneSelect = document.getElementById('zone_select');
+                    if (zoneSelect && !zoneSelect.value) {
+                        zoneSelect.value = opt.getAttribute('data-zone-id');
+                    }
+                }
+            });
         }
     });
 </script>

@@ -159,6 +159,7 @@ class ParkingTicket extends Model
 
             return [
                 'duration_minutes' => $durationMinutes,
+                'billable_hours' => 0,
                 'subtotal' => 0.00,
                 'discount' => 0.00,
                 'penalty' => 0.00,
@@ -182,6 +183,7 @@ class ParkingTicket extends Model
             $subtotal = $calc['subtotal'];
             $penalty = $calc['penalty'];
             $isGrace = $calc['is_grace_period'];
+            $billableHours = $calc['billable_hours'] ?? (int) ceil($durationMinutes / 60);
         } else {
             // Fallback rates from vehicle type
             $vType = $this->vehicleType;
@@ -189,27 +191,33 @@ class ParkingTicket extends Model
             $isGrace = ($durationMinutes <= ($vType->grace_period_minutes ?? 15));
             $subtotal = $isGrace ? 0.00 : (($vType->base_rate ?? 5) + (($hours - 1) * ($vType->hourly_rate ?? 3)));
             $penalty = $isLost ? ($vType->lost_ticket_penalty ?? 50.00) : 0.00;
-            if ($isLost) $subtotal = $penalty;
+            if ($isLost) {
+                $subtotal = $penalty;
+            }
+            $billableHours = $isGrace ? 0 : $hours;
         }
 
         // Zone surcharge if applicable
-        if ($this->zone && $this->zone->hourly_surcharge > 0 && !$isGrace) {
+        if ($this->zone && $this->zone->hourly_surcharge > 0 && ! $isGrace) {
             $subtotal += ($this->zone->hourly_surcharge * ceil($durationMinutes / 60));
         }
 
         // 10% VAT / Service Tax simulation
         $tax = round($subtotal * 0.10, 2);
-        $total = round($subtotal + $tax, 2);
+        $discount = (float) ($this->discount_amount ?? 0.00);
+        $total = max(0.00, round(($subtotal + $tax) - $discount, 2));
 
         $this->subtotal = $subtotal;
+        $this->discount_amount = $discount;
         $this->penalty_amount = $penalty;
         $this->tax_amount = $tax;
         $this->total_amount = $total;
 
         return [
             'duration_minutes' => $durationMinutes,
+            'billable_hours' => $billableHours,
             'subtotal' => $subtotal,
-            'discount' => 0.00,
+            'discount' => $discount,
             'penalty' => $penalty,
             'tax' => $tax,
             'total' => $total,

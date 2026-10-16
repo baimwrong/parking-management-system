@@ -206,7 +206,7 @@
     function openSlotModal(id, number, status, vtype, parkedPlate) {
         document.getElementById('slotModalTitle').textContent = `Manage Bay ${number}`;
         document.getElementById('slotStatusSelect').value = status;
-        document.getElementById('slotStatusForm').action = `/slots/${id}/status`;
+        document.getElementById('slotStatusForm').action = `{{ url('slots') }}/${id}/status`;
 
         const infoEl = document.getElementById('slotParkedInfo');
         const plateEl = document.getElementById('slotParkedPlate');

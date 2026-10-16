@@ -64,7 +64,16 @@
 
             <div class="d-flex justify-content-between align-items-center mt-auto">
                 <small class="text-muted"><i class="bi bi-geo-alt me-1"></i>{{ $t->location?->code }}</small>
-                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openEditTariffModal('{{ $t->id }}', '{{ $t->name }}', '{{ $t->initial_duration_minutes }}', '{{ $t->initial_rate }}', '{{ $t->subsequent_rate_per_hour }}', '{{ $t->max_daily_cap }}', '{{ $t->overnight_surcharge }}', '{{ $t->lost_ticket_fee }}', '{{ $t->grace_period_minutes }}')">
+                <button type="button" class="btn btn-sm btn-outline-secondary edit-tariff-btn"
+                    data-id="{{ $t->id }}"
+                    data-name="{{ $t->name }}"
+                    data-initial-min="{{ $t->initial_duration_minutes }}"
+                    data-initial-rate="{{ $t->initial_rate }}"
+                    data-subsequent-rate="{{ $t->subsequent_rate_per_hour }}"
+                    data-daily-cap="{{ $t->max_daily_cap }}"
+                    data-overnight="{{ $t->overnight_surcharge }}"
+                    data-lost-fee="{{ $t->lost_ticket_fee }}"
+                    data-grace="{{ $t->grace_period_minutes }}">
                     <i class="bi bi-pencil me-1"></i>Adjust Rates
                 </button>
             </div>
@@ -219,21 +228,26 @@
 
 @section('scripts')
 <script>
-    function openEditTariffModal(id, name, initMin, initRate, subRate, dailyCap, overnight, lostFee, grace) {
-        document.getElementById('editTariffTitle').textContent = `Adjust Rates: ${name}`;
-        document.getElementById('edit_name').value = name;
-        document.getElementById('edit_initial_min').value = initMin;
-        document.getElementById('edit_initial_rate').value = initRate;
-        document.getElementById('edit_subsequent_rate').value = subRate;
-        document.getElementById('edit_daily_cap').value = dailyCap;
-        document.getElementById('edit_overnight').value = overnight;
-        document.getElementById('edit_lost_fee').value = lostFee;
-        document.getElementById('edit_grace').value = grace;
+    document.addEventListener("DOMContentLoaded", function () {
+        document.querySelectorAll('.edit-tariff-btn').forEach(btn => {
+            btn.addEventListener('click', function () {
+                const d = this.dataset;
+                document.getElementById('editTariffTitle').textContent = `Adjust Rates: ${d.name}`;
+                document.getElementById('edit_name').value = d.name;
+                document.getElementById('edit_initial_min').value = d.initialMin;
+                document.getElementById('edit_initial_rate').value = d.initialRate;
+                document.getElementById('edit_subsequent_rate').value = d.subsequentRate;
+                document.getElementById('edit_daily_cap').value = d.dailyCap;
+                document.getElementById('edit_overnight').value = d.overnight;
+                document.getElementById('edit_lost_fee').value = d.lostFee;
+                document.getElementById('edit_grace').value = d.grace;
 
-        document.getElementById('editTariffForm').action = `/tariffs/${id}`;
+                document.getElementById('editTariffForm').action = `{{ url('tariffs') }}/${d.id}`;
 
-        const modal = new bootstrap.Modal(document.getElementById('editTariffModal'));
-        modal.show();
-    }
+                const modal = new bootstrap.Modal(document.getElementById('editTariffModal'));
+                modal.show();
+            });
+        });
+    });
 </script>
 @endsection

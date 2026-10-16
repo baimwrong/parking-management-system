@@ -30,19 +30,19 @@ class GateController extends Controller
 
         $entryGates = Gate::where('gate_type', 'entry')
             ->where('is_active', true)
-            ->when($selectedLocation, fn($q) => $q->where('parking_location_id', $selectedLocation->id))
+            ->when($selectedLocation, fn ($q) => $q->where('parking_location_id', $selectedLocation->id))
             ->get();
 
         $vehicleTypes = VehicleType::where('is_active', true)->get();
 
         $zones = ParkingZone::where('is_active', true)
-            ->when($selectedLocation, fn($q) => $q->where('parking_location_id', $selectedLocation->id))
-            ->with(['slots' => fn($q) => $q->where('status', 'available')])
+            ->when($selectedLocation, fn ($q) => $q->where('parking_location_id', $selectedLocation->id))
+            ->with(['slots' => fn ($q) => $q->where('status', 'available')])
             ->get();
 
         $recentEntries = ParkingTicket::with(['vehicleType', 'entryGate', 'zone'])
             ->where('status', 'parked')
-            ->when($selectedLocation, fn($q) => $q->where('parking_location_id', $selectedLocation->id))
+            ->when($selectedLocation, fn ($q) => $q->where('parking_location_id', $selectedLocation->id))
             ->latest('entry_time')
             ->take(10)
             ->get();
@@ -89,6 +89,9 @@ class GateController extends Controller
             $slot = null;
             if ($request->filled('parking_slot_id')) {
                 $slot = ParkingSlot::find($request->parking_slot_id);
+                if (! $slot || $slot->status !== 'available') {
+                    return back()->with('error', 'The selected parking slot is no longer available. Please select another slot or choose auto-assign.');
+                }
             } elseif ($request->filled('parking_zone_id')) {
                 $slot = ParkingSlot::where('parking_zone_id', $request->parking_zone_id)
                     ->where('status', 'available')
@@ -107,6 +110,10 @@ class GateController extends Controller
             $dateCode = Carbon::now()->format('Ymd');
             $dailyCount = ParkingTicket::whereDate('entry_time', Carbon::today())->count() + 1;
             $ticketNumber = sprintf('TKT-%s-%04d', $dateCode, $dailyCount);
+            while (ParkingTicket::where('ticket_number', $ticketNumber)->exists()) {
+                $dailyCount++;
+                $ticketNumber = sprintf('TKT-%s-%04d', $dateCode, $dailyCount);
+            }
 
             $ticket = ParkingTicket::create([
                 'ticket_uid' => (string) Str::uuid(),
@@ -144,7 +151,8 @@ class GateController extends Controller
                 ->with('ticket_issued', $ticket->load(['vehicleType', 'entryGate', 'zone', 'slot', 'location']));
         } catch (\Exception $e) {
             DB::rollBack();
-            return back()->with('error', 'Check-in failed: ' . $e->getMessage());
+
+            return back()->with('error', 'Check-in failed: '.$e->getMessage());
         }
     }
 
@@ -158,7 +166,7 @@ class GateController extends Controller
 
         $exitGates = Gate::where('gate_type', 'exit')
             ->where('is_active', true)
-            ->when($selectedLocation, fn($q) => $q->where('parking_location_id', $selectedLocation->id))
+            ->when($selectedLocation, fn ($q) => $q->where('parking_location_id', $selectedLocation->id))
             ->get();
 
         $activeTicket = null;
@@ -185,7 +193,7 @@ class GateController extends Controller
 
         $recentExits = ParkingTicket::with(['vehicleType', 'exitGate', 'cashier'])
             ->where('status', 'completed')
-            ->when($selectedLocation, fn($q) => $q->where('parking_location_id', $selectedLocation->id))
+            ->when($selectedLocation, fn ($q) => $q->where('parking_location_id', $selectedLocation->id))
             ->latest('exit_time')
             ->take(8)
             ->get();
@@ -225,8 +233,8 @@ class GateController extends Controller
 
         DB::beginTransaction();
         try {
-            $invoiceNumber = 'INV-' . Carbon::now()->format('Ymd') . '-' . sprintf('%04d', $ticket->id);
-            $referenceNo = 'REF-' . strtoupper(Str::random(10));
+            $invoiceNumber = 'INV-'.Carbon::now()->format('Ymd').'-'.sprintf('%04d', $ticket->id);
+            $referenceNo = 'REF-'.strtoupper(Str::random(10));
 
             $payment = Payment::create([
                 'parking_ticket_id' => $ticket->id,
@@ -242,10 +250,12 @@ class GateController extends Controller
                 'receipt_meta' => [
                     'plate_number' => $ticket->plate_number,
                     'duration_minutes' => $calc['duration_minutes'],
-                    'duration_formatted' => floor($calc['duration_minutes'] / 60) . 'h ' . ($calc['duration_minutes'] % 60) . 'm',
+                    'duration_formatted' => floor($calc['duration_minutes'] / 60).'h '.($calc['duration_minutes'] % 60).'m',
                     'subtotal' => $calc['subtotal'],
                     'tax' => $calc['tax'],
                     'penalty' => $calc['penalty'],
+                    'discount' => $calc['discount'],
+                    'total' => $totalDue,
                     'cashier' => Auth::user()?->name ?? 'System Automated Kiosk',
                 ],
             ]);
@@ -265,6 +275,12 @@ class GateController extends Controller
             $ticket->exit_time = $exitTime;
             $ticket->paid_at = $exitTime;
             $ticket->status = 'completed';
+            $ticket->duration_minutes = $calc['duration_minutes'];
+            $ticket->subtotal = $calc['subtotal'];
+            $ticket->tax_amount = $calc['tax'];
+            $ticket->penalty_amount = $calc['penalty'];
+            $ticket->discount_amount = $calc['discount'];
+            $ticket->total_amount = $totalDue;
             $ticket->payment_method = $request->payment_method;
             $ticket->payment_reference = $referenceNo;
             $ticket->cashier_user_id = Auth::id();
@@ -290,7 +306,8 @@ class GateController extends Controller
                 ->with('payment_settled', $payment->load('ticket.vehicleType', 'ticket.entryGate', 'ticket.location'));
         } catch (\Exception $e) {
             DB::rollBack();
-            return back()->with('error', 'Payment processing failed: ' . $e->getMessage());
+
+            return back()->with('error', 'Payment processing failed: '.$e->getMessage());
         }
     }
 
@@ -340,13 +357,53 @@ class GateController extends Controller
 
         DB::beginTransaction();
         try {
-            $ticketNumber = sprintf('LOST-%s-%04d', date('Ymd'), rand(100, 999));
+            // Find and close any active parked ticket for this plate to prevent ghost occupancy
+            $existingActiveTicket = ParkingTicket::with('slot.zone')
+                ->where('plate_number', $plateNumber)
+                ->where('status', 'parked')
+                ->first();
+
+            $assignedSlotId = null;
+            $assignedZoneId = null;
+
+            if ($existingActiveTicket) {
+                $assignedSlotId = $existingActiveTicket->parking_slot_id;
+                $assignedZoneId = $existingActiveTicket->parking_zone_id;
+
+                // Free the occupied slot
+                if ($existingActiveTicket->slot) {
+                    $existingActiveTicket->slot->status = 'available';
+                    $existingActiveTicket->slot->save();
+
+                    if ($existingActiveTicket->slot->zone) {
+                        $existingActiveTicket->slot->zone->recalculateAvailableSlots();
+                    }
+                }
+
+                // Mark original parked ticket as resolved via lost ticket affidavit
+                $existingActiveTicket->status = 'lost';
+                $existingActiveTicket->exit_gate_id = $request->exit_gate_id;
+                $existingActiveTicket->exit_time = $exitTime;
+                $existingActiveTicket->paid_at = $exitTime;
+                $existingActiveTicket->notes = ($existingActiveTicket->notes ? $existingActiveTicket->notes.' | ' : '').'Closed via Lost Ticket Affidavit';
+                $existingActiveTicket->save();
+            }
+
+            // Generate unique lost ticket number
+            $lostCount = ParkingTicket::whereDate('created_at', Carbon::today())->count() + 1;
+            $ticketNumber = sprintf('LOST-%s-%04d', date('Ymd'), $lostCount);
+            while (ParkingTicket::where('ticket_number', $ticketNumber)->exists()) {
+                $lostCount++;
+                $ticketNumber = sprintf('LOST-%s-%04d', date('Ymd'), $lostCount);
+            }
 
             $ticket = ParkingTicket::create([
                 'ticket_uid' => (string) Str::uuid(),
                 'ticket_number' => $ticketNumber,
                 'barcode_hash' => strtoupper(Str::random(12)),
                 'parking_location_id' => $request->parking_location_id,
+                'parking_zone_id' => $assignedZoneId,
+                'parking_slot_id' => $assignedSlotId,
                 'exit_gate_id' => $request->exit_gate_id,
                 'vehicle_type_id' => $vType->id,
                 'plate_number' => $plateNumber,
@@ -361,14 +418,14 @@ class GateController extends Controller
                 'tax_amount' => $tax,
                 'total_amount' => $totalDue,
                 'payment_method' => $request->payment_method,
-                'payment_reference' => 'LOST-REF-' . strtoupper(Str::random(8)),
+                'payment_reference' => 'LOST-REF-'.strtoupper(Str::random(8)),
                 'cashier_user_id' => Auth::id(),
-                'notes' => "Lost ticket affidavit: Driver ID: {$request->driver_id_number}, Phone: {$request->driver_phone}",
+                'notes' => "Lost ticket affidavit: Driver ID: {$request->driver_id_number}, Phone: {$request->driver_phone}".($existingActiveTicket ? " (Replaced Ticket #{$existingActiveTicket->ticket_number})" : ''),
             ]);
 
             $payment = Payment::create([
                 'parking_ticket_id' => $ticket->id,
-                'invoice_number' => 'INV-LOST-' . date('Ymd') . '-' . $ticket->id,
+                'invoice_number' => 'INV-LOST-'.date('Ymd').'-'.$ticket->id,
                 'payment_method' => $request->payment_method,
                 'amount_due' => $totalDue,
                 'amount_paid' => $amountPaid,
@@ -404,7 +461,8 @@ class GateController extends Controller
                 ->with('payment_settled', $payment->load('ticket.vehicleType', 'ticket.location'));
         } catch (\Exception $e) {
             DB::rollBack();
-            return back()->with('error', 'Lost ticket processing failed: ' . $e->getMessage());
+
+            return back()->with('error', 'Lost ticket processing failed: '.$e->getMessage());
         }
     }
 
