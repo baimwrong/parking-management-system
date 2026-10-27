@@ -108,10 +108,12 @@
 
     <div class="line-dashed"></div>
 
-    <!-- Barcode Strip -->
-    <div class="text-center">
-        <div class="barcode-box"></div>
-        <div class="fw-bold" style="letter-spacing: 2px; font-size: 0.85rem;">*{{ $ticket->barcode_hash }}*</div>
+    <!-- Real Scannable 1D Barcode (Code-128) -->
+    <div class="text-center my-2">
+        <div class="p-1 bg-white">
+            {!! \App\Services\BarcodeService::getCode128Svg($ticket->ticket_number, 52, 1.3) !!}
+        </div>
+        <div class="fw-bold font-monospace mt-1" style="letter-spacing: 1.5px; font-size: 0.82rem;">{{ $ticket->ticket_number }}</div>
     </div>
 
     <div class="line-dashed"></div>

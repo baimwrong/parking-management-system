@@ -237,4 +237,86 @@ class ParkingSystemTest extends TestCase
             'status' => 'completed',
         ]);
     }
+
+    public function test_anti_passback_prevents_duplicate_entry_for_active_member(): void
+    {
+        $cashier = User::where('email', 'cashier@parking.local')->first();
+        $loc = ParkingLocation::first();
+        $gate = Gate::where('gate_type', 'entry')->first();
+        $exitGate = Gate::where('gate_type', 'exit')->first();
+        $vType = VehicleType::where('code', 'car')->first();
+
+        // Create an active member pass
+        $member = \App\Models\MemberPass::create([
+            'pass_number' => 'MEM-APB-TEST',
+            'rfid_uid' => 'RFID-TEST-001',
+            'member_name' => 'APB Test User',
+            'phone' => '+1-555-9999',
+            'plate_number' => 'B 9999 APB',
+            'vehicle_type_id' => $vType->id,
+            'plan_type' => 'monthly',
+            'price_paid' => 150.00,
+            'valid_from' => now()->subDay(),
+            'valid_until' => now()->addMonth(),
+            'status' => 'active',
+            'is_inside' => false,
+        ]);
+
+        // First Entry: Must succeed
+        $response = $this->actingAs($cashier)->post('/gate/check-in', [
+            'parking_location_id' => $loc->id,
+            'entry_gate_id' => $gate->id,
+            'vehicle_type_id' => $vType->id,
+            'plate_number' => 'B 9999 APB',
+        ]);
+        $response->assertRedirect();
+        $member->refresh();
+        $this->assertTrue($member->is_inside);
+
+        // Second Entry Attempt with same pass without exiting: Must be blocked by Anti-Passback
+        $blockedResponse = $this->actingAs($cashier)->post('/gate/check-in', [
+            'parking_location_id' => $loc->id,
+            'entry_gate_id' => $gate->id,
+            'vehicle_type_id' => $vType->id,
+            'plate_number' => 'B 9999 APB',
+        ]);
+        $blockedResponse->assertRedirect();
+        $blockedResponse->assertSessionHas('error');
+
+        // Settle exit: Must clear Anti-Passback is_inside state
+        $ticket = ParkingTicket::where('plate_number', 'B 9999 APB')->where('status', 'parked')->first();
+        $this->actingAs($cashier)->post('/gate/process-payment', [
+            'ticket_id' => $ticket->id,
+            'exit_gate_id' => $exitGate->id,
+            'payment_method' => 'member_card',
+            'amount_paid' => 0.00,
+        ])->assertRedirect();
+
+        $member->refresh();
+        $this->assertFalse($member->is_inside);
+    }
+
+    public function test_parking_zone_recalculates_available_slots_ignoring_maintenance(): void
+    {
+        $zone = ParkingZone::with('slots')->first();
+        $this->assertNotNull($zone);
+
+        // Set one slot to maintenance
+        $slot = $zone->slots->first();
+        $slot->status = 'maintenance';
+        $slot->save();
+
+        $zone->recalculateAvailableSlots();
+
+        $actualAvailable = $zone->slots()->where('status', 'available')->count();
+        $this->assertEquals($actualAvailable, $zone->available_slots);
+    }
+
+    public function test_barcode_service_generates_scannable_code128_svg(): void
+    {
+        $svg = \App\Services\BarcodeService::getCode128Svg('TKT-20261015-0001');
+        $this->assertStringStartsWith('<svg', $svg);
+        $this->assertStringContainsString('rect', $svg);
+        $this->assertStringEndsWith('</svg>', $svg);
+    }
 }

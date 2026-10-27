@@ -25,6 +25,8 @@ class ParkingTicket extends Model
         'exit_gate_id',
         'vehicle_type_id',
         'plate_number',
+        'entry_image_url',
+        'exit_image_url',
         'ticket_type',
         'member_pass_id',
         'entry_time',
@@ -202,8 +204,9 @@ class ParkingTicket extends Model
             $subtotal += ($this->zone->hourly_surcharge * ceil($durationMinutes / 60));
         }
 
-        // 10% VAT / Service Tax simulation
-        $tax = round($subtotal * 0.10, 2);
+        // VAT / Municipal Tax based on location settings (defaults to 10%)
+        $vatRate = (float) ($this->location?->settings['vat_percentage'] ?? 10);
+        $tax = round($subtotal * ($vatRate / 100), 2);
         $discount = (float) ($this->discount_amount ?? 0.00);
         $total = max(0.00, round(($subtotal + $tax) - $discount, 2));
 

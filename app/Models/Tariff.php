@@ -104,7 +104,10 @@ class Tariff extends Model
             }
         }
 
-        $subtotal = ($fullDays * $dailyCap) + $feeForRemaining;
+        $overnightSurcharge = (float) ($this->overnight_surcharge ?? 0.00);
+        $overnightFee = ($fullDays > 0 && $overnightSurcharge > 0) ? ($fullDays * $overnightSurcharge) : 0.00;
+
+        $subtotal = ($fullDays * $dailyCap) + $feeForRemaining + $overnightFee;
 
         return [
             'subtotal' => round($subtotal, 2),

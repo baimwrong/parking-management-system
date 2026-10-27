@@ -101,4 +101,14 @@ class User extends Authenticatable
     {
         return $this->hasMany(BulkImport::class);
     }
+
+    public function cashierShifts(): HasMany
+    {
+        return $this->hasMany(CashierShift::class);
+    }
+
+    public function activeShift(): ?CashierShift
+    {
+        return $this->cashierShifts()->where('status', 'open')->latest()->first();
+    }
 }

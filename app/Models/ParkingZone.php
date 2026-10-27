@@ -50,8 +50,15 @@ class ParkingZone extends Model
 
     public function recalculateAvailableSlots(): void
     {
-        $occupied = $this->slots()->where('status', 'occupied')->count();
-        $this->available_slots = max(0, $this->total_slots - $occupied);
+        $this->available_slots = $this->slots()
+            ->where('status', 'available')
+            ->where('is_active', true)
+            ->count();
+
+        $this->total_slots = $this->slots()
+            ->where('is_active', true)
+            ->count();
+
         $this->save();
     }
 }

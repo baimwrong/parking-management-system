@@ -268,7 +268,7 @@
 
         /* Print media rules */
         @media print {
-            #sidebar-wrapper, .top-navbar, .no-print, .btn, .breadcrumb {
+            #sidebar-wrapper, .top-navbar, .no-print, .btn, .breadcrumb, .modal-backdrop, .modal-header, .modal-footer {
                 display: none !important;
             }
             #page-content-wrapper {
@@ -276,6 +276,25 @@
             }
             .main-container {
                 padding: 0 !important;
+            }
+            .modal {
+                position: static !important;
+                display: block !important;
+                background: transparent !important;
+            }
+            .modal-dialog {
+                margin: 0 auto !important;
+                max-width: 380px !important;
+            }
+            .modal-content {
+                border: none !important;
+                box-shadow: none !important;
+                background: transparent !important;
+            }
+            #printable-receipt-slip {
+                border: 1px solid #000 !important;
+                background: #fff !important;
+                color: #000 !important;
             }
         }
     </style>

@@ -25,6 +25,9 @@ class MemberPass extends Model
         'valid_from',
         'valid_until',
         'status',
+        'is_inside',
+        'last_entry_at',
+        'last_exit_at',
         'notes',
     ];
 
@@ -34,6 +37,9 @@ class MemberPass extends Model
             'price_paid' => 'decimal:2',
             'valid_from' => 'date',
             'valid_until' => 'date',
+            'is_inside' => 'boolean',
+            'last_entry_at' => 'datetime',
+            'last_exit_at' => 'datetime',
         ];
     }
 

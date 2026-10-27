@@ -234,7 +234,7 @@
                 <p class="text-muted small mb-3">Payment confirmed. Thank you for parking with us.</p>
 
                 <!-- Receipt Slip -->
-                <div class="border rounded-3 p-3 bg-light text-start font-monospace small mb-3">
+                <div id="printable-receipt-slip" class="border rounded-3 p-3 bg-light text-start font-monospace small mb-3">
                     <div class="text-center fw-bold border-bottom pb-2 mb-2">
                         <div>{{ $payment->ticket?->location?->name ?? 'Parking Management System' }}</div>
                         <div class="text-muted" style="font-size: 0.7rem;">OFFICIAL PARKING RECEIPT / TAX INVOICE</div>

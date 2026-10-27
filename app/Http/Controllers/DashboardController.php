@@ -72,24 +72,26 @@ class DashboardController extends Controller
             ->where('valid_until', '>=', Carbon::today())
             ->count();
 
-        // 3. Hourly Flow Distribution (Today)
+        // 3. Hourly Flow Distribution (Today) - Optimized to 2 queries instead of 34
+        $todayEntryHours = ParkingTicket::whereBetween('entry_time', [$todayStart, $todayEnd])
+            ->when($location, fn($q) => $q->where('parking_location_id', $location->id))
+            ->get(['entry_time'])
+            ->groupBy(fn($t) => $t->entry_time->format('H'))
+            ->map(fn($group) => $group->count());
+
+        $todayExitHours = ParkingTicket::whereBetween('exit_time', [$todayStart, $todayEnd])
+            ->when($location, fn($q) => $q->where('parking_location_id', $location->id))
+            ->get(['exit_time'])
+            ->groupBy(fn($t) => $t->exit_time->format('H'))
+            ->map(fn($group) => $group->count());
+
         $hourlyFlow = [];
         for ($h = 6; $h <= 22; $h++) {
-            $hStart = Carbon::today()->setHour($h)->startOfHour();
-            $hEnd = Carbon::today()->setHour($h)->endOfHour();
-
-            $entries = ParkingTicket::whereBetween('entry_time', [$hStart, $hEnd])
-                ->when($location, fn($q) => $q->where('parking_location_id', $location->id))
-                ->count();
-
-            $exits = ParkingTicket::whereBetween('exit_time', [$hStart, $hEnd])
-                ->when($location, fn($q) => $q->where('parking_location_id', $location->id))
-                ->count();
-
+            $key = sprintf('%02d', $h);
             $hourlyFlow[] = [
                 'hour' => sprintf('%02d:00', $h),
-                'entries' => $entries,
-                'exits' => $exits,
+                'entries' => $todayEntryHours->get($key, 0),
+                'exits' => $todayExitHours->get($key, 0),
             ];
         }
 

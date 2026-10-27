@@ -11,6 +11,7 @@ use App\Models\ParkingSlot;
 use App\Models\ParkingTicket;
 use App\Models\ParkingZone;
 use App\Models\Payment;
+use App\Models\Tariff;
 use App\Models\VehicleType;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -81,20 +82,27 @@ class GateController extends Controller
             ->where('valid_until', '>=', Carbon::today())
             ->first();
 
+        // Anti-Passback (APB) Enforcement
+        if ($memberPass && $memberPass->is_inside) {
+            return back()->with('error', "Anti-Passback Violation: Member Pass #{$memberPass->pass_number} ({$memberPass->member_name}) is already logged inside the facility. Card reuse is prohibited.");
+        }
+
         $ticketType = $memberPass ? 'member' : 'casual';
 
         DB::beginTransaction();
         try {
-            // Find and allocate slot if requested or automatically find first available in zone
+            // Find and allocate slot with pessimistic concurrency lock (lockForUpdate)
             $slot = null;
             if ($request->filled('parking_slot_id')) {
-                $slot = ParkingSlot::find($request->parking_slot_id);
+                $slot = ParkingSlot::where('id', $request->parking_slot_id)->lockForUpdate()->first();
                 if (! $slot || $slot->status !== 'available') {
                     return back()->with('error', 'The selected parking slot is no longer available. Please select another slot or choose auto-assign.');
                 }
             } elseif ($request->filled('parking_zone_id')) {
                 $slot = ParkingSlot::where('parking_zone_id', $request->parking_zone_id)
                     ->where('status', 'available')
+                    ->where('is_active', true)
+                    ->lockForUpdate()
                     ->first();
             }
 
@@ -130,6 +138,14 @@ class GateController extends Controller
                 'entry_time' => Carbon::now(),
                 'status' => 'parked',
             ]);
+
+            // Update member pass state for Anti-Passback
+            if ($memberPass) {
+                $memberPass->update([
+                    'is_inside' => true,
+                    'last_entry_at' => Carbon::now(),
+                ]);
+            }
 
             // Gate log
             GateLog::create([
@@ -213,26 +229,31 @@ class GateController extends Controller
             'amount_paid' => 'required|numeric|min:0',
         ]);
 
-        $ticket = ParkingTicket::with(['vehicleType', 'slot', 'zone'])->findOrFail($request->ticket_id);
-
-        if ($ticket->status !== 'parked') {
-            return back()->with('error', "Ticket #{$ticket->ticket_number} has already been settled (Status: {$ticket->status}).");
-        }
-
-        $exitTime = Carbon::now();
-        $calc = $ticket->recalculateCharges($exitTime);
-        $totalDue = $calc['total'];
-        $amountPaid = (float) $request->amount_paid;
-
-        // If not member/free, verify payment
-        if ($totalDue > 0 && $amountPaid < $totalDue && $request->payment_method !== 'complimentary') {
-            return back()->with('error', "Amount tendered (\${$amountPaid}) is less than the total due (\${$totalDue}).");
-        }
-
-        $changeGiven = max(0, $amountPaid - $totalDue);
-
         DB::beginTransaction();
         try {
+            // Pessimistic locking to prevent concurrent double-settlement
+            $ticket = ParkingTicket::with(['vehicleType', 'slot', 'zone', 'memberPass', 'location'])
+                ->where('id', $request->ticket_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($ticket->status !== 'parked') {
+                DB::rollBack();
+                return back()->with('error', "Ticket #{$ticket->ticket_number} has already been settled (Status: {$ticket->status}).");
+            }
+
+            $exitTime = Carbon::now();
+            $calc = $ticket->recalculateCharges($exitTime);
+            $totalDue = $calc['total'];
+            $amountPaid = (float) $request->amount_paid;
+
+            // If not member/free, verify payment
+            if ($totalDue > 0 && $amountPaid < $totalDue && $request->payment_method !== 'complimentary') {
+                DB::rollBack();
+                return back()->with('error', "Amount tendered (\${$amountPaid}) is less than the total due (\${$totalDue}).");
+            }
+
+            $changeGiven = max(0, $amountPaid - $totalDue);
             $invoiceNumber = 'INV-'.Carbon::now()->format('Ymd').'-'.sprintf('%04d', $ticket->id);
             $referenceNo = 'REF-'.strtoupper(Str::random(10));
 
@@ -268,6 +289,14 @@ class GateController extends Controller
                 if ($ticket->slot->zone) {
                     $ticket->slot->zone->recalculateAvailableSlots();
                 }
+            }
+
+            // Clear member pass inside status (Anti-Passback reset)
+            if ($ticket->memberPass) {
+                $ticket->memberPass->update([
+                    'is_inside' => false,
+                    'last_exit_at' => $exitTime,
+                ]);
             }
 
             // Update ticket
@@ -341,13 +370,22 @@ class GateController extends Controller
         ]);
 
         $vType = VehicleType::findOrFail($request->vehicle_type_id);
+        $location = ParkingLocation::findOrFail($request->parking_location_id);
         $entryTime = Carbon::parse($request->estimated_entry_time);
         $exitTime = Carbon::now();
         $durationMinutes = max(1, $entryTime->diffInMinutes($exitTime));
 
         $plateNumber = strtoupper(trim($request->plate_number));
-        $lostPenalty = (float) $vType->lost_ticket_penalty;
-        $tax = round($lostPenalty * 0.10, 2);
+
+        // Use custom location tariff if available, fallback to vehicle type rate
+        $tariff = Tariff::where('parking_location_id', $location->id)
+            ->where('vehicle_type_id', $vType->id)
+            ->where('is_active', true)
+            ->first();
+
+        $lostPenalty = $tariff ? (float) $tariff->lost_ticket_fee : (float) $vType->lost_ticket_penalty;
+        $vatRate = (float) ($location->settings['vat_percentage'] ?? 10);
+        $tax = round($lostPenalty * ($vatRate / 100), 2);
         $totalDue = $lostPenalty + $tax;
 
         $amountPaid = (float) $request->amount_paid;
@@ -378,6 +416,14 @@ class GateController extends Controller
                     if ($existingActiveTicket->slot->zone) {
                         $existingActiveTicket->slot->zone->recalculateAvailableSlots();
                     }
+                }
+
+                // Reset member pass if applicable
+                if ($existingActiveTicket->memberPass) {
+                    $existingActiveTicket->memberPass->update([
+                        'is_inside' => false,
+                        'last_exit_at' => $exitTime,
+                    ]);
                 }
 
                 // Mark original parked ticket as resolved via lost ticket affidavit
